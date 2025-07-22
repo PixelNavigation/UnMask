@@ -1,0 +1,10 @@
+The Xception model is a deep learning architecture designed for image classification tasks. It was proposed by François Chollet, the creator of the Keras library, and is an extension of the Inception architecture. The key innovation in Xception is the use of depthwise separable convolutions instead of the standard Inception modules.
+
+Key Features of Xception
+
+Depthwise Separable Convolutions: This technique involves performing a depthwise convolution (a single convolution on each input channel) followed by a pointwise convolution (a 1x1 convolution across all channels). This reduces the number of parameters and computational cost while maintaining performance.
+
+Pre-trained on ImageNet: The Xception model can be pre-trained on the ImageNet dataset, which contains over 1.2 million images and 1,000 classes. This allows the model to leverage learned features and achieve high accuracy on various image classification tasks.
+
+Input Size: The default input size for the Xception model is 299x299 pixels. This is larger than the typical 224x224 input size used by other models like VGG and ResNet.
+
