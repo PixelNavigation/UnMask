@@ -1,0 +1,41 @@
+.upload-box {
+  border: 2.5px dashed #0070f3;
+  border-radius: 16px;
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  background: linear-gradient(135deg, #f0f4ff 0%, #fafafa 100%);
+  box-shadow: 0 4px 24px rgba(0,112,243,0.08);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  color: #222;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 1.1rem;
+  position: relative;
+  margin-top: 32px;
+  margin-bottom: 32px;
+}
+.upload-box.dragover {
+  border-color: #0051a8;
+  box-shadow: 0 4px 32px rgba(0,81,168,0.12);
+}
+.upload-box-content {
+  margin-bottom: 18px;
+}
+.upload-box-icon {
+  margin-bottom: 8px;
+}
+.upload-box-title {
+  font-weight: 500;
+  font-size: 1.15rem;
+  margin: 0;
+}
+.upload-box-desc {
+  color: #666;
+  font-size: 0.95rem;
+  margin: 8px 0 0 0;
+}
+.upload-box-browse {
+  color: #0070f3;
+  text-decoration: underline;
+  cursor: pointer;
+}
