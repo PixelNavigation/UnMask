@@ -1,4 +1,7 @@
+
+
 import styles from "./page.module.css";
+import UploadBox from "../Components/UploadBox";
 
 export default function Home() {
   return (
@@ -6,9 +9,7 @@ export default function Home() {
       <div className="Header">
         <h1>UnMask</h1>
       </div>
-      <div className="Search-Box">
-        <input type="text" placeholder="Paste the link to check for authenticity" />
-      </div>
+      <UploadBox />
     </div>
   );
 }
