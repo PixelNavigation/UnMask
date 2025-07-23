@@ -1,52 +1,19 @@
 """
-UnMask Backend API - Cleaned Version
-Using only Xception models and OpenCV face detection
+UnMask Backend API - Enhanced with Bi-LSTM Temporal Analysis
+Using Xception models, OpenCV face detection, and Enhanced Temporal Bi-LSTM
 """
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import cv2
 import numpy as np
-import torch
-import torch.nn.functional as F
-from torchvision import transforms as T
-from PIL import Image
 import os
 import tempfile
 import logging
+from pathlib import Path
 
-# Configure logging early
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Import our cleaned modules
-import sys
-import os
-
-# Add the kaggle-dfdc directory to Python path
-kaggle_dfdc_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kaggle-dfdc')
-sys.path.insert(0, kaggle_dfdc_path)
-
-try:
-    from face_utils import FaceDetector, norm_crop
-    from model_def import WSDAN, xception
-    logger.info("Successfully imported cleaned modules")
-except ImportError as e:
-    logger.error(f"Failed to import modules: {e}")
-    # For development/testing, create dummy classes
-    class FaceDetector:
-        def __init__(self, **kwargs): pass
-        def detect(self, img): return [], []
-    
-    class WSDAN:
-        def __init__(self, **kwargs): pass
-        def __call__(self, x): return torch.zeros(1, 2), None, None
-    
-    def xception(**kwargs):
-        return torch.nn.Linear(1, 2)
-    
-    def norm_crop(img, landmarks, **kwargs):
-        return img
+# Import DeepfakeDetector class
+from DeepfakeDetector import DeepfakeDetector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,158 +21,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
-
-class DeepfakeDetector:
-    def __init__(self):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f"Using device: {self.device}")
-        
-        # Initialize face detector (OpenCV)
-        self.face_detector = FaceDetector(device="cpu")  # OpenCV runs on CPU
-        logger.info("OpenCV face detector initialized")
-        
-        # Load models
-        self.load_models()
-        
-        # Image transforms
-        self.transform = T.Compose([
-            T.ToTensor(),
-        ])
-        
-        # Normalization parameters for WSDAN
-        self.zhq_nm_avg = torch.Tensor([.4479, .3744, .3473]).view(1, 3, 1, 1)
-        self.zhq_nm_std = torch.Tensor([.2537, .2502, .2424]).view(1, 3, 1, 1)
-        
-        if self.device.type == 'cuda':
-            self.zhq_nm_avg = self.zhq_nm_avg.cuda()
-            self.zhq_nm_std = self.zhq_nm_std.cuda()
-    
-    def load_models(self):
-        """Load the cleaned Xception models"""
-        try:
-            # Model 1: Standalone Xception
-            self.model1 = xception(num_classes=2, pretrained=False)
-            
-            # Try to load weights if available
-            xception_weights_path = "kaggle-dfdc/model_def/xception-hg-2.pth"  # Standalone Xception weights
-            if os.path.exists(xception_weights_path):
-                logger.info("Loading Xception weights...")
-                ckpt = torch.load(xception_weights_path, map_location=self.device, weights_only=False)
-                self.model1.load_state_dict(ckpt.get("state_dict", ckpt))
-            else:
-                logger.warning("Xception weights not found, using random initialization")
-            
-            self.model1 = self.model1.to(self.device)
-            self.model1.eval()
-            
-            # Model 2: WSDAN + Xception
-            self.model2 = WSDAN(num_classes=2, M=8, net="xception", pretrained=False)
-            
-            # Try to load WSDAN weights if available
-            wsdan_weights_path = "kaggle-dfdc/model_def/ckpt_x.pth"  # Update path as needed
-            if os.path.exists(wsdan_weights_path):
-                logger.info("Loading WSDAN+Xception weights...")
-                ckpt = torch.load(wsdan_weights_path, map_location=self.device, weights_only=False)
-                self.model2.load_state_dict(ckpt.get("state_dict", ckpt))
-            else:
-                logger.warning("WSDAN weights not found, using random initialization")
-                
-            self.model2 = self.model2.to(self.device)
-            self.model2.eval()
-            
-            logger.info("Models loaded successfully!")
-            
-        except Exception as e:
-            logger.error(f"Error loading models: {e}")
-            # Initialize with random weights for testing
-            self.model1 = xception(num_classes=2, pretrained=False).to(self.device)
-            self.model2 = WSDAN(num_classes=2, M=8, net="xception", pretrained=False).to(self.device)
-            self.model1.eval()
-            self.model2.eval()
-            logger.info("Using models with random weights for testing")
-    
-    def detect_faces(self, image):
-        """Detect faces in image using OpenCV"""
-        boxes, landms = self.face_detector.detect(image)
-        return boxes, landms
-    
-    def predict(self, image_path):
-        """
-        Predict if image/video contains deepfake
-        Returns: dict with prediction results
-        """
-        try:
-            # Load image
-            if image_path.lower().endswith(('.mp4', '.avi', '.mov')):
-                # Handle video - extract first frame for now
-                cap = cv2.VideoCapture(image_path)
-                ret, frame = cap.read()
-                cap.release()
-                if not ret:
-                    return {"error": "Could not read video file"}
-                image = frame
-            else:
-                # Handle image
-                image = cv2.imread(image_path)
-                if image is None:
-                    return {"error": "Could not read image file"}
-            
-            # Detect faces
-            boxes, landms = self.detect_faces(image)
-            
-            if len(boxes) == 0:
-                return {
-                    "is_deepfake": False,
-                    "confidence": 0.5,
-                    "status": "no_face_detected",
-                    "message": "No faces detected in the image"
-                }
-            
-            # Take the first face
-            box = boxes[0]
-            landm = landms[0].reshape(5, 2)
-            
-            # Crop and normalize face
-            face_img = norm_crop(image, landm, image_size=224)
-            face_pil = Image.fromarray(cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB))
-            
-            # Convert to tensor
-            face_tensor = self.transform(face_pil).unsqueeze(0).to(self.device)
-            
-            # Run inference
-            with torch.no_grad():
-                # Model 1: Xception
-                i1 = F.interpolate(face_tensor, size=299, mode="bilinear")
-                i1.sub_(0.5).mul_(2.0)  # Normalize to [-1, 1]
-                o1 = self.model1(i1).softmax(-1)[:, 1].cpu().numpy()[0]
-                
-                # Model 2: WSDAN + Xception  
-                i2 = (face_tensor - self.zhq_nm_avg) / self.zhq_nm_std
-                o2, _, _ = self.model2(i2)
-                o2 = o2.softmax(-1)[:, 1].cpu().numpy()[0]
-                
-                # Ensemble prediction (adjusted weights for 2 models)
-                final_score = 0.3 * o1 + 0.7 * o2
-            
-            # Determine result
-            is_deepfake = final_score > 0.5
-            confidence = final_score if is_deepfake else (1 - final_score)
-            
-            return {
-                "is_deepfake": bool(is_deepfake),
-                "confidence": float(confidence),
-                "status": "fake" if is_deepfake else "real",
-                "scores": {
-                    "xception": float(o1),
-                    "wsdan_xception": float(o2),
-                    "ensemble": float(final_score)
-                },
-                "faces_detected": len(boxes)
-            }
-            
-        except Exception as e:
-            logger.error(f"Prediction error: {e}")
-            return {"error": f"Prediction failed: {str(e)}"}
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 
 # Initialize detector
 detector = DeepfakeDetector()
@@ -217,7 +33,15 @@ def health_check():
         "status": "healthy",
         "models": "xception_only",
         "face_detector": "opencv",
-        "device": str(detector.device)
+        "device": str(detector.device),
+        "enhanced_features": [
+            "Rich intermediate features",
+            "Monte Carlo uncertainty estimation", 
+            "Temporal smoothing with EMA",
+            "Multi-head attention",
+            "Enhanced video analysis"
+        ],
+        "temporal_ready": True
     })
 
 @app.route('/api/upload', methods=['POST'])
@@ -245,7 +69,8 @@ def upload_file():
             
             return jsonify({
                 "filename": file.filename,
-                "detection_result": result
+                "detection_result": result,
+                "analysis_type": "basic"
             })
             
         except Exception as e:
@@ -258,7 +83,147 @@ def upload_file():
         logger.error(f"Upload error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/analyze_video_temporal', methods=['POST'])
+def analyze_video_temporal():
+    """
+    Enhanced video analysis endpoint with temporal processing
+    """
+    try:
+        # Check if video file is present
+        if 'file' not in request.files:
+            return jsonify({"error": "No video file provided"}), 400
+        
+        video_file = request.files['file']
+        if video_file.filename == '':
+            return jsonify({"error": "No video file selected"}), 400
+        
+        # Check file extension
+        allowed_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+        file_ext = Path(video_file.filename).suffix.lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({"error": f"Unsupported file format. Allowed: {allowed_extensions}"}), 400
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+            video_file.save(temp_file.name)
+            temp_path = temp_file.name
+        
+        try:
+            # Perform enhanced temporal analysis
+            result = detector.predict_video_temporal_enhanced(temp_path)
+            
+            # Add metadata
+            result["analysis_type"] = "enhanced_temporal"
+            result["filename"] = video_file.filename
+            
+            return jsonify(result)
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+                
+    except Exception as e:
+        logger.error(f"Video temporal analysis error: {e}")
+        return jsonify({"error": f"Video analysis failed: {str(e)}"}), 500
+
+@app.route('/api/analyze_frame_temporal', methods=['POST'])
+def analyze_frame_temporal():
+    """
+    Real-time frame analysis with temporal context
+    """
+    try:
+        # Check if image file is present
+        if 'file' not in request.files:
+            return jsonify({"error": "No frame image provided"}), 400
+        
+        frame_file = request.files['file']
+        if frame_file.filename == '':
+            return jsonify({"error": "No frame selected"}), 400
+        
+        # Read image data
+        image_data = frame_file.read()
+        nparr = np.frombuffer(image_data, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return jsonify({"error": "Invalid image format"}), 400
+        
+        # Perform enhanced real-time analysis
+        result = detector.predict_realtime_frame_enhanced(frame)
+        
+        # Add metadata
+        result["analysis_type"] = "enhanced_realtime"
+        result["filename"] = frame_file.filename
+        result["timestamp"] = np.datetime64('now').astype(str)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Frame temporal analysis error: {e}")
+        return jsonify({"error": f"Frame analysis failed: {str(e)}"}), 500
+
+@app.route('/api/reset_temporal_history', methods=['POST'])
+def reset_temporal_history():
+    """Reset the temporal frame history for real-time analysis"""
+    try:
+        detector.reset_temporal_history()
+        return jsonify({
+            "status": "success",
+            "message": "Temporal history reset successfully"
+        })
+    except Exception as e:
+        logger.error(f"Reset temporal history error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/get_model_info', methods=['GET'])
+def get_model_info():
+    """Get information about the enhanced temporal model"""
+    return jsonify({
+        "model_type": "Enhanced Temporal Bi-LSTM + Xception",
+        "base_models": ["Xception", "WSDAN+Xception"],
+        "face_detector": "OpenCV Haar Cascade",
+        "device": str(detector.device),
+        "features": {
+            "rich_features": "512-dimensional intermediate embeddings",
+            "uncertainty_modeling": "Monte Carlo Dropout",
+            "temporal_smoothing": "Exponential Moving Average",
+            "attention": "Multi-head attention mechanism",
+            "sequence_length": detector.sequence_length,
+            "no_retraining": "Uses existing trained models"
+        },
+        "improvements": [
+            "✅ Rich intermediate features (not just final scores)",
+            "✅ Dropout-based uncertainty modeling", 
+            "✅ Temporal smoothing with EMA",
+            "✅ Multi-head attention for better focus",
+            "✅ Enhanced reliability scoring"
+        ],
+        "endpoints": {
+            "/api/upload": "Basic single file analysis",
+            "/api/analyze_video_temporal": "Enhanced video temporal analysis",
+            "/api/analyze_frame_temporal": "Real-time frame analysis with history",
+            "/api/reset_temporal_history": "Reset frame history",
+            "/api/health": "Health check",
+            "/api/get_model_info": "This endpoint"
+        }
+    })
+
 if __name__ == '__main__':
-    logger.info("Starting UnMask backend (cleaned version)")
-    logger.info("Using: Xception models + OpenCV face detection")
+    logger.info("🚀 Starting Enhanced UnMask Backend")
+    logger.info("✅ Base Models: Xception + WSDAN+Xception + OpenCV")
+    logger.info("✅ Enhanced Features: Temporal Bi-LSTM with Rich Features")
+    logger.info("✅ Uncertainty Modeling: Monte Carlo Dropout")
+    logger.info("✅ Temporal Smoothing: Exponential Moving Average")
+    logger.info("✅ Multi-head Attention: 4 attention heads")
+    logger.info("📡 Available Endpoints:")
+    logger.info("   • POST /api/upload - Basic single file analysis")
+    logger.info("   • POST /api/analyze_video_temporal - Enhanced video analysis")
+    logger.info("   • POST /api/analyze_frame_temporal - Real-time with history")
+    logger.info("   • POST /api/reset_temporal_history - Reset temporal context")
+    logger.info("   • GET /api/health - Health check")
+    logger.info("   • GET /api/get_model_info - Model information")
+    logger.info("🌐 Server starting on http://0.0.0.0:5000")
     app.run(debug=True, host='0.0.0.0', port=5000)
