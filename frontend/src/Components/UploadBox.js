@@ -42,23 +42,27 @@ export default function UploadBox() {
     setResult(null);
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('video', file);
 
     try {
-      const response = await fetch('http://localhost:5000/api/upload', {
+      // Connect to the Flask API running on port 5000
+      const response = await fetch('http://localhost:5000/api/detect', {
         method: 'POST',
         body: formData,
       });
 
-      const data = await response.json();
-
       if (response.ok) {
+        const data = await response.json();
         setResult(data);
       } else {
-        setResult({ error: data.error || 'Upload failed' });
+        const errorData = await response.json();
+        setResult({ error: errorData.error || 'Detection failed' });
       }
     } catch (error) {
-      setResult({ error: 'Network error. Please check if backend is running.' });
+      console.error('Backend error:', error);
+      setResult({ 
+        error: 'Backend connection failed. Please ensure the Flask server is running on port 5000.' 
+      });
     } finally {
       setUploading(false);
     }
@@ -79,7 +83,7 @@ export default function UploadBox() {
           type="file"
           style={{ display: "none" }}
           onChange={handleChange}
-          accept="image/*,video/*"
+          accept="video/*,image/*"
         />
         <div className={styles["upload-box-content"]}>
           {uploading ? (
@@ -106,19 +110,48 @@ export default function UploadBox() {
         <div className={styles.result}>
           {result.error ? (
             <div className={styles.error}>
-              <h3>Error</h3>
+              <h3>❌ Error</h3>
               <p>{result.error}</p>
             </div>
           ) : (
             <div className={styles.success}>
-              <h3>Detection Result</h3>
-              <p><strong>File:</strong> {result.filename}</p>
-              <p><strong>Status:</strong> 
-                <span className={result.detection_result.is_deepfake ? styles.fake : styles.real}>
-                  {result.detection_result.status.toUpperCase()}
-                </span>
-              </p>
-              <p><strong>Confidence:</strong> {(result.detection_result.confidence * 100).toFixed(2)}%</p>
+              <h3>🎯 Detection Result</h3>
+              <div className={styles.resultGrid}>
+                <div className={styles.mainResult}>
+                  <p><strong>Status:</strong> 
+                    <span className={result.is_deepfake ? styles.fake : styles.real}>
+                      {result.is_deepfake ? '🚨 DEEPFAKE DETECTED' : '✅ APPEARS AUTHENTIC'}
+                    </span>
+                  </p>
+                  <p><strong>Confidence:</strong> {(result.confidence * 100).toFixed(1)}%</p>
+                  <p><strong>Fake Probability:</strong> {(result.fake_probability * 100).toFixed(1)}%</p>
+                </div>
+                
+                {result.faces_detected && (
+                  <div className={styles.details}>
+                    <h4>📊 Analysis Details</h4>
+                    <p><strong>Faces Detected:</strong> {result.faces_detected}</p>
+                    <p><strong>Processing Time:</strong> {result.processing_time}s</p>
+                    {result.models_used && (
+                      <p><strong>Models Used:</strong> {result.models_used.join(', ')}</p>
+                    )}
+                  </div>
+                )}
+                
+                {result.individual_predictions && (
+                  <div className={styles.modelResults}>
+                    <h4>🤖 Individual Model Results</h4>
+                    {Object.entries(result.individual_predictions).map(([model, pred]) => (
+                      <div key={model} className={styles.modelResult}>
+                        <span className={styles.modelName}>{model}:</span>
+                        <span className={pred.is_fake ? styles.fake : styles.real}>
+                          {pred.is_fake ? 'Fake' : 'Real'} ({(pred.confidence * 100).toFixed(1)}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -1,382 +1,256 @@
 #!/usr/bin/env python3
 """
-Simple Deepfake Detection API
-Uses the cloned HongguLiu/Deepfake-Detection repository
+Enhanced Deepfake Detection Server with dlib integration
 """
 
 import os
 import sys
-import json
-import time
-import uuid
 import cv2
+import dlib
 import numpy as np
+import torch
+import torch.nn as nn
+from PIL import Image
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+import tempfile
+import logging
+import traceback
 from pathlib import Path
 
-# Add the Deepfake-Detection path to system path
+# Add Deepfake-Detection to path
 current_dir = Path(__file__).parent
-deepfake_detection_path = current_dir / "Deepfake-Detection"
-sys.path.insert(0, str(deepfake_detection_path))
+deepfake_dir = current_dir / "Deepfake-Detection"
+sys.path.insert(0, str(deepfake_dir))
 
-# Simple Flask-like server using http.server
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import urllib.parse
-import tempfile
-import shutil
+try:
+    from network.models import model_selection
+    from network.mesonet import Meso4, MesoInception4
+    from network.xception import TransferModel
+except ImportError as e:
+    print(f"Warning: Could not import deepfake detection models: {e}")
+    print("Some functionality may be limited.")
 
-class DeepfakeDetectionHandler(BaseHTTPRequestHandler):
-    
-    def do_GET(self):
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            response = {
-                'status': 'running',
-                'message': 'Deepfake Detection API is running',
-                'available_endpoints': ['/detect'],
-                'models': 'HongguLiu/Deepfake-Detection integrated'
-            }
-            self.wfile.write(json.dumps(response).encode())
-            
-        elif self.path == '/detect':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            html_form = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Deepfake Detection</title>
-                <style>
-                    body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-                    .upload-area { border: 2px dashed #ccc; padding: 50px; text-align: center; margin: 20px 0; }
-                    .result { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
-                    .fake { background-color: #ffe6e6; border-color: #ff9999; }
-                    .real { background-color: #e6ffe6; border-color: #99ff99; }
-                </style>
-            </head>
-            <body>
-                <h1>🎭 Enhanced Deepfake Detection</h1>
-                <p>Upload a video file to detect if it contains deepfake content.</p>
-                
-                <form action="/upload" method="post" enctype="multipart/form-data">
-                    <div class="upload-area">
-                        <input type="file" name="video" accept="video/*" required>
-                        <br><br>
-                        <button type="submit">🔍 Analyze Video</button>
-                    </div>
-                </form>
-                
-                <div id="info">
-                    <h3>📊 Detection Models:</h3>
-                    <ul>
-                        <li>MesoNet (Meso4 & MesoInception4)</li>
-                        <li>Enhanced Xception Network</li>
-                        <li>Ensemble Voting System</li>
-                    </ul>
-                    
-                    <h3>📋 Supported Formats:</h3>
-                    <p>MP4, AVI, MOV, MKV, WebM (max 100MB)</p>
-                </div>
-            </body>
-            </html>
-            """
-            self.wfile.write(html_form.encode())
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+CORS(app)
+
+class DeepfakeDetector:
+    def __init__(self):
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        logger.info(f"Using device: {self.device}")
+        
+        # Initialize dlib face detector
+        self.face_detector = dlib.get_frontal_face_detector()
+        logger.info("dlib face detector initialized")
+        
+        # Initialize face predictor (if available)
+        predictor_path = "shape_predictor_68_face_landmarks.dat"
+        if os.path.exists(predictor_path):
+            self.face_predictor = dlib.shape_predictor(predictor_path)
+            logger.info("dlib face predictor loaded")
         else:
-            self.send_error(404)
+            self.face_predictor = None
+            logger.warning("dlib face predictor not found. Download from: http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2")
+        
+        # Load model
+        self.model = None
+        self.load_model()
     
-    def do_POST(self):
-        if self.path == '/upload' or self.path == '/api/detect':
-            try:
-                # Parse multipart form data
-                content_type = self.headers['content-type']
-                if not content_type.startswith('multipart/form-data'):
-                    self.send_error(400, "Expected multipart/form-data")
-                    return
-                
-                # Get the boundary
-                boundary = content_type.split('boundary=')[1]
-                
-                # Read the form data
-                content_length = int(self.headers['Content-Length'])
-                post_data = self.rfile.read(content_length)
-                
-                # Simple file extraction (basic implementation)
-                # In production, use proper multipart parsing
-                video_data = self.extract_video_from_multipart(post_data, boundary)
-                
-                if video_data:
-                    # Save temporary file
-                    temp_file = f"temp_{uuid.uuid4().hex}.mp4"
-                    with open(temp_file, 'wb') as f:
-                        f.write(video_data)
-                    
-                    # Perform detection
-                    result = self.detect_deepfake(temp_file)
-                    
-                    # Clean up
-                    try:
-                        os.remove(temp_file)
-                    except:
-                        pass
-                    
-                    # Send JSON response for API endpoint, HTML for upload endpoint
-                    if self.path == '/api/detect':
-                        self.send_response(200)
-                        self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.end_headers()
-                        self.wfile.write(json.dumps(result).encode())
-                    else:
-                        # Send HTML response for /upload endpoint
-                        self.send_response(200)
-                        self.send_header('Content-type', 'text/html')
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.end_headers()
-                        self.send_detection_result(result)
-                else:
-                    self.send_error(400, "No video file found")
-                    
-            except Exception as e:
-                print(f"Error processing upload: {e}")
-                self.send_error(500, f"Internal server error: {str(e)}")
-        else:
-            self.send_error(404)
-    
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-    
-    def extract_video_from_multipart(self, data, boundary):
-        """Simple multipart data extraction"""
+    def load_model(self):
+        """Load the deepfake detection model"""
         try:
-            boundary_bytes = f'--{boundary}'.encode()
-            parts = data.split(boundary_bytes)
+            model_path = deepfake_dir / "pretrained_model" / "FF++_c23.pth"
+            if not model_path.exists():
+                logger.warning(f"Model not found at {model_path}")
+                return
             
-            for part in parts:
-                if b'filename=' in part and b'video' in part:
-                    # Find the start of file data (after double CRLF)
-                    header_end = part.find(b'\r\n\r\n')
-                    if header_end != -1:
-                        file_data = part[header_end + 4:]
-                        # Remove trailing boundary marker
-                        if file_data.endswith(b'\r\n'):
-                            file_data = file_data[:-2]
-                        return file_data
-            return None
+            # Try to load Xception model
+            self.model = TransferModel(name='xception', num_out_classes=2)
+            self.model.load_state_dict(torch.load(str(model_path), map_location=self.device))
+            self.model.to(self.device)
+            self.model.eval()
+            logger.info("Xception model loaded successfully")
+            
         except Exception as e:
-            print(f"Multipart extraction error: {e}")
-            return None
+            logger.error(f"Error loading model: {e}")
+            self.model = None
     
-    def detect_deepfake(self, video_path):
-        """Detect deepfake using simplified approach"""
+    def detect_faces_dlib(self, image):
+        """Detect faces using dlib"""
+        if isinstance(image, str):
+            image = cv2.imread(image)
+        
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        faces = self.face_detector(gray)
+        
+        face_regions = []
+        for face in faces:
+            x, y, w, h = face.left(), face.top(), face.width(), face.height()
+            face_regions.append((x, y, w, h))
+        
+        return face_regions
+    
+    def preprocess_face(self, face_image):
+        """Preprocess face image for model input"""
+        # Resize to model input size (usually 299x299 for Xception)
+        face_resized = cv2.resize(face_image, (299, 299))
+        face_normalized = face_resized.astype(np.float32) / 255.0
+        
+        # Convert to tensor and add batch dimension
+        face_tensor = torch.from_numpy(face_normalized).permute(2, 0, 1).unsqueeze(0)
+        return face_tensor.to(self.device)
+    
+    def predict_deepfake(self, image_path):
+        """Predict if image contains deepfake"""
         try:
-            # Simple face-based detection
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                return {'error': 'Cannot open video file'}
+            image = cv2.imread(str(image_path))
+            if image is None:
+                return {"error": "Could not load image"}
             
-            # Sample frames
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            sample_frames = min(10, total_frames)
-            step = max(1, total_frames // sample_frames)
+            # Detect faces using dlib
+            faces = self.detect_faces_dlib(image)
             
-            frame_scores = []
-            faces_detected = 0
-            
-            for i in range(0, total_frames, step):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # Simple analysis based on frame statistics
-                score = self.analyze_frame(frame)
-                if score is not None:
-                    frame_scores.append(score)
-                    faces_detected += 1
-                
-                if len(frame_scores) >= sample_frames:
-                    break
-            
-            cap.release()
-            
-            if not frame_scores:
+            if not faces:
                 return {
-                    'error': 'No faces detected in video',
-                    'is_deepfake': False,
-                    'confidence': 0.0
+                    "prediction": "no_faces",
+                    "confidence": 0.0,
+                    "message": "No faces detected in the image"
                 }
             
-            # Calculate average score
-            avg_score = np.mean(frame_scores)
-            is_fake = avg_score > 0.5
-            confidence = max(avg_score, 1 - avg_score)
+            results = []
+            
+            for i, (x, y, w, h) in enumerate(faces):
+                # Extract face region
+                face_region = image[y:y+h, x:x+w]
+                
+                if self.model is not None:
+                    # Preprocess and predict
+                    face_tensor = self.preprocess_face(face_region)
+                    
+                    with torch.no_grad():
+                        outputs = self.model(face_tensor)
+                        probabilities = torch.softmax(outputs, dim=1)
+                        fake_prob = probabilities[0][1].item()  # Probability of being fake
+                        
+                    prediction = "fake" if fake_prob > 0.5 else "real"
+                    confidence = fake_prob if prediction == "fake" else (1 - fake_prob)
+                else:
+                    # Fallback without model
+                    prediction = "unknown"
+                    confidence = 0.0
+                
+                results.append({
+                    "face_id": i + 1,
+                    "prediction": prediction,
+                    "confidence": confidence,
+                    "bbox": {"x": x, "y": y, "width": w, "height": h}
+                })
+            
+            # Overall result (worst case scenario)
+            overall_prediction = "real"
+            max_fake_confidence = 0.0
+            
+            for result in results:
+                if result["prediction"] == "fake" and result["confidence"] > max_fake_confidence:
+                    max_fake_confidence = result["confidence"]
+                    overall_prediction = "fake"
             
             return {
-                'is_deepfake': is_fake,
-                'fake_probability': avg_score,
-                'confidence': confidence,
-                'frames_analyzed': len(frame_scores),
-                'faces_detected': faces_detected,
-                'method': 'Statistical Analysis + Frame Sampling'
+                "overall_prediction": overall_prediction,
+                "overall_confidence": max_fake_confidence if overall_prediction == "fake" else (1 - max_fake_confidence),
+                "faces_detected": len(faces),
+                "face_results": results
             }
             
         except Exception as e:
-            return {'error': f'Detection failed: {str(e)}'}
-    
-    def analyze_frame(self, frame):
-        """Simple frame analysis - placeholder for actual model"""
-        try:
-            # Convert to grayscale
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Calculate various statistics that might indicate manipulation
-            # This is a simplified approach - in practice you'd use the actual models
-            
-            # Edge detection
-            edges = cv2.Canny(gray, 50, 150)
-            edge_density = np.sum(edges > 0) / edges.size
-            
-            # Texture analysis
-            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            
-            # Color histogram analysis
-            hist = cv2.calcHist([frame], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
-            hist_uniformity = np.std(hist.flatten())
-            
-            # Simple scoring based on these features
-            # Real videos typically have:
-            # - Natural edge patterns
-            # - Consistent texture
-            # - Natural color distribution
-            
-            # Normalize and combine features
-            edge_score = min(edge_density * 10, 1.0)
-            texture_score = min(laplacian_var / 1000, 1.0)
-            color_score = min(hist_uniformity / 10000, 1.0)
-            
-            # Weighted combination (this is very simplified)
-            # In reality, you'd use trained models
-            composite_score = (edge_score * 0.3 + texture_score * 0.4 + color_score * 0.3)
-            
-            # Add some randomness to simulate model uncertainty
-            composite_score += np.random.normal(0, 0.1)
-            composite_score = np.clip(composite_score, 0, 1)
-            
-            return composite_score
-            
-        except Exception as e:
-            print(f"Frame analysis error: {e}")
-            return None
-    
-    def send_detection_result(self, result):
-        """Send HTML result page"""
-        if 'error' in result:
-            result_class = "error"
-            icon = "❌"
-            status = f"Error: {result['error']}"
-            details = ""
-        else:
-            if result['is_deepfake']:
-                result_class = "fake"
-                icon = "🚨"
-                status = "DEEPFAKE DETECTED"
-            else:
-                result_class = "real"
-                icon = "✅"
-                status = "APPEARS AUTHENTIC"
-            
-            details = f"""
-            <p><strong>Confidence:</strong> {result.get('confidence', 0):.2%}</p>
-            <p><strong>Fake Probability:</strong> {result.get('fake_probability', 0):.2%}</p>
-            <p><strong>Frames Analyzed:</strong> {result.get('frames_analyzed', 0)}</p>
-            <p><strong>Faces Detected:</strong> {result.get('faces_detected', 0)}</p>
-            <p><strong>Method:</strong> {result.get('method', 'Unknown')}</p>
-            """
-        
-        html_result = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Detection Result</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
-                .result {{ margin: 20px 0; padding: 20px; border-radius: 10px; text-align: center; }}
-                .fake {{ background-color: #ffe6e6; border: 3px solid #ff6666; }}
-                .real {{ background-color: #e6ffe6; border: 3px solid #66ff66; }}
-                .error {{ background-color: #fff2e6; border: 3px solid #ffaa00; }}
-                .icon {{ font-size: 48px; margin: 20px 0; }}
-                .status {{ font-size: 24px; font-weight: bold; margin: 20px 0; }}
-                .details {{ text-align: left; margin: 20px 0; }}
-                .back-btn {{ background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
-            </style>
-        </head>
-        <body>
-            <h1>🎭 Deepfake Detection Result</h1>
-            
-            <div class="result {result_class}">
-                <div class="icon">{icon}</div>
-                <div class="status">{status}</div>
-                <div class="details">{details}</div>
-            </div>
-            
-            <p style="text-align: center;">
-                <button class="back-btn" onclick="window.location.href='/detect'">🔄 Analyze Another Video</button>
-            </p>
-            
-            <div style="margin-top: 40px; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
-                <h3>⚠️ Disclaimer</h3>
-                <p>This detection system is for educational and research purposes. Results should not be considered 100% accurate and should be verified through additional means when making important decisions.</p>
-            </div>
-        </body>
-        </html>
-        """
-        
-        self.wfile.write(html_result.encode())
+            logger.error(f"Error in prediction: {e}")
+            logger.error(traceback.format_exc())
+            return {"error": str(e)}
 
-def main():
-    """Start the detection server"""
-    print("🎭 Enhanced Deepfake Detection Server")
-    print("=" * 50)
-    print(f"📁 Working Directory: {Path.cwd()}")
-    print(f"🔧 Deepfake-Detection Path: {deepfake_detection_path}")
-    print(f"✅ Repository Available: {deepfake_detection_path.exists()}")
-    
-    if deepfake_detection_path.exists():
-        print("📋 Available Models:")
-        models_dir = deepfake_detection_path / "network"
-        if models_dir.exists():
-            for model_file in models_dir.glob("*.py"):
-                if model_file.name != "__init__.py":
-                    print(f"   - {model_file.stem}")
-    
-    server_address = ('localhost', 5000)
-    httpd = HTTPServer(server_address, DeepfakeDetectionHandler)
-    
-    print(f"\n🚀 Server starting at http://localhost:5000")
-    print("📍 Endpoints:")
-    print("   - GET  /          - Server status")
-    print("   - GET  /detect    - Upload interface")
-    print("   - POST /upload    - Detection endpoint (HTML)")
-    print("   - POST /api/detect - Detection endpoint (JSON)")
-    print("\n👆 Open your browser and go to: http://localhost:5000/detect")
-    print("🔗 Or use your React frontend at: http://localhost:3000")
-    print("Press Ctrl+C to stop the server")
-    
+# Initialize detector
+detector = DeepfakeDetector()
+
+@app.route('/', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "message": "Enhanced Deepfake Detection Server with dlib",
+        "model_loaded": detector.model is not None,
+        "dlib_available": True,
+        "face_predictor_available": detector.face_predictor is not None,
+        "device": str(detector.device)
+    })
+
+@app.route('/detect', methods=['POST'])
+def detect_deepfake():
+    """Main detection endpoint"""
     try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\n🛑 Server stopped")
-        httpd.server_close()
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+            file.save(temp_file.name)
+            temp_path = temp_file.name
+        
+        try:
+            # Perform detection
+            result = detector.predict_deepfake(temp_path)
+            return jsonify(result)
+        
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+    
+    except Exception as e:
+        logger.error(f"Error in detection endpoint: {e}")
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
-    main()
+@app.route('/test', methods=['GET'])
+def test_endpoint():
+    """Test endpoint to verify dlib functionality"""
+    try:
+        # Test dlib face detection with a simple test
+        test_image = np.zeros((300, 300, 3), dtype=np.uint8)
+        faces = detector.detect_faces_dlib(test_image)
+        
+        return jsonify({
+            "dlib_working": True,
+            "test_faces_detected": len(faces),
+            "model_available": detector.model is not None,
+            "message": "dlib integration is working properly"
+        })
+    
+    except Exception as e:
+        return jsonify({
+            "dlib_working": False,
+            "error": str(e)
+        }), 500
+
+if __name__ == '__main__':
+    print("="*50)
+    print("Enhanced Deepfake Detection Server with dlib")
+    print("="*50)
+    print(f"Using device: {detector.device}")
+    print(f"Model loaded: {detector.model is not None}")
+    print(f"dlib face detector: Available")
+    print(f"dlib face predictor: {'Available' if detector.face_predictor else 'Not available'}")
+    print("="*50)
+    print("Server starting on http://localhost:5000")
+    print("Endpoints:")
+    print("  GET  /        - Health check")
+    print("  POST /detect  - Detect deepfakes in uploaded image")
+    print("  GET  /test    - Test dlib functionality")
+    print("="*50)
+    
+    app.run(host='0.0.0.0', port=5000, debug=True)
