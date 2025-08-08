@@ -23,7 +23,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 # Initialize the model and preprocessing pipeline
 def load_models():
     models = []
-    weights_dir = "dfdc_deepfake_challenge/weights"
+    weights_dir = "dfdc_model/weights"
     # Update these model names based on your downloaded weights
     model_files = [
         "final_888_DeepFakeClassifier_tf_efficientnet_b7_ns_0_40",
