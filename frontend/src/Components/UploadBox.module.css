@@ -102,60 +102,22 @@
   padding: 20px;
   border-radius: 8px;
   border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 .mainResult p {
-  margin: 8px 0;
+  margin: 12px 0;
   font-size: 1.1rem;
-}
-
-.details {
-  background: #f8fafc;
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-}
-
-.details h4 {
-  margin: 0 0 12px 0;
-  color: #374151;
-}
-
-.details p {
-  margin: 6px 0;
-  font-size: 0.95rem;
-  color: #6b7280;
-}
-
-.modelResults {
-  background: #fefefe;
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-}
-
-.modelResults h4 {
-  margin: 0 0 12px 0;
-  color: #374151;
-}
-
-.modelResult {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid #f3f4f6;
-}
-
-.modelResult:last-child {
-  border-bottom: none;
-}
-
-.modelName {
+  color: #1f2937;
   font-weight: 500;
-  color: #4b5563;
-  text-transform: capitalize;
 }
+
+.mainResult strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+
 
 .fake {
   color: #dc2626;
@@ -171,4 +133,125 @@
   background: #dcfce7;
   padding: 4px 8px;
   border-radius: 4px;
+}
+
+/* New styles for explainability and frame analysis */
+.explainability {
+  background: #f0f9ff;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #0ea5e9;
+  margin-top: 16px;
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.1);
+}
+
+.explainability h4 {
+  margin: 0 0 12px 0;
+  color: #0c4a6e;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.explainability p {
+  margin: 8px 0;
+  color: #164e63;
+  line-height: 1.6;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.gradcam {
+  background: #fefce8;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #eab308;
+  margin-top: 16px;
+}
+
+.gradcam h4 {
+  margin: 0 0 12px 0;
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.gradcam p {
+  margin: 8px 0;
+  color: #92400e;
+  line-height: 1.6;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.gradcamImage {
+  width: 100%;
+  max-width: 400px;
+  height: auto;
+  border-radius: 8px;
+  border: 2px solid #d97706;
+  margin: 12px 0;
+}
+
+.frameAnalysis {
+  background: #fef3f2;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #f87171;
+  margin-top: 16px;
+}
+
+.frameAnalysis h4 {
+  margin: 0 0 12px 0;
+  color: #991b1b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.frameAnalysis p {
+  margin: 8px 0;
+  color: #991b1b;
+  line-height: 1.6;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.frameList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.frameItem {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid #fecaca;
+}
+
+.loadingExplain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.loadingSpinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #0070f3;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
