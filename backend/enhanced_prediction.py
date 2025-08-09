@@ -56,63 +56,74 @@ def enhanced_predict_on_video(face_extractor, video_path, batch_size, input_size
                         y_pred = model(x[:n])
                     y_pred = torch.sigmoid(y_pred.squeeze())
                     frame_preds = y_pred.detach().cpu().numpy()
+                    
+                    # Handle single frame case
+                    if n == 1:
+                        frame_preds = [frame_preds]
+                    
                     all_preds.append(frame_preds)
                 
-                    # Average predictions across models
-                    avg_frame_preds = np.mean(all_preds, axis=0)
+                # Average predictions across models
+                avg_frame_preds = np.mean(all_preds, axis=0)
                 
-                    # Identify fake frames (threshold > 0.5)
-                    for i, pred in enumerate(avg_frame_preds):
-                        if i < len(frame_data_list):
-                            frame_idx = frame_data_list[i]['frame_idx']
-                            frame_predictions.append({
-                                'frame_idx': frame_idx,
-                                'prediction': float(pred)
-                            })
+                # Collect all frame predictions for strategy calculation
+                all_predictions = []
+                
+                # Identify fake frames (threshold > 0.5)
+                for i, pred in enumerate(avg_frame_preds):
+                    if i < len(frame_data_list):
+                        frame_idx = frame_data_list[i]['frame_idx']
+                        frame_predictions.append({
+                            'frame_idx': frame_idx,
+                            'prediction': float(pred)
+                        })
+                        all_predictions.append(float(pred))
+                    
+                        if pred > 0.5:  # Fake frame
+                            fake_frames.append(frame_idx)
+                
+                # Generate Grad-CAM for the most suspicious frame
+                if len(fake_frames) > 0 and len(models) > 0:
+                    # Find the frame with highest fake probability
+                    max_pred_idx = np.argmax(avg_frame_preds)
+                    if max_pred_idx < len(frame_data_list):
+                        try:
+                            # Get the target layer (last convolutional layer)
+                            model = models[0]
+                            target_layer = None
+                            for name, module in model.named_modules():
+                                if isinstance(module, torch.nn.Conv2d):
+                                    target_layer = module
                         
-                            if pred > 0.5:  # Fake frame
-                                fake_frames.append(frame_idx)
+                            if target_layer is not None:
+                                gradcam = GradCAM(model, target_layer)
+                                input_tensor = x[max_pred_idx:max_pred_idx+1].clone().detach()
+                                input_tensor.requires_grad = True
+                                if device == "cuda":
+                                    input_tensor = input_tensor.half()
+                                heatmap = gradcam.generate_cam(input_tensor)
+                                # Create visualization
+                                original_face = frame_data_list[max_pred_idx]['processed_face']
+                                # Ensure heatmap is detached before converting to numpy
+                                if isinstance(heatmap, torch.Tensor):
+                                    heatmap = heatmap.detach().cpu().numpy()
+                                gradcam_image = create_gradcam_image(original_face, heatmap)
+                                gradcam_base64 = image_to_base64(gradcam_image)
+                                gradcam_images.append(gradcam_base64)
+                        except Exception as e:
+                            print(f"Grad-CAM generation error: {e}")
                 
-                    # Generate Grad-CAM for the most suspicious frame
-                    if len(fake_frames) > 0 and len(models) > 0:
-                        # Find the frame with highest fake probability
-                        max_pred_idx = np.argmax(avg_frame_preds)
-                        if max_pred_idx < len(frame_data_list):
-                            try:
-                                # Get the target layer (last convolutional layer)
-                                model = models[0]
-                                target_layer = None
-                                for name, module in model.named_modules():
-                                    if isinstance(module, torch.nn.Conv2d):
-                                        target_layer = module
-                            
-                                if target_layer is not None:
-                                    gradcam = GradCAM(model, target_layer)
-                                    input_tensor = x[max_pred_idx:max_pred_idx+1].clone().detach()
-                                    input_tensor.requires_grad = True
-                                    if device == "cuda":
-                                        input_tensor = input_tensor.half()
-                                    heatmap = gradcam.generate_cam(input_tensor)
-                                    # Create visualization
-                                    original_face = frame_data_list[max_pred_idx]['processed_face']
-                                    # Ensure heatmap is detached before converting to numpy
-                                    if isinstance(heatmap, torch.Tensor):
-                                        heatmap = heatmap.detach().cpu().numpy()
-                                    gradcam_image = create_gradcam_image(original_face, heatmap)
-                                    gradcam_base64 = image_to_base64(gradcam_image)
-                                    gradcam_images.append(gradcam_base64)
-                            except Exception as e:
-                                print(f"Grad-CAM generation error: {e}")
+                # Return overall prediction using strategy
+                overall_prediction = strategy(all_predictions)
                 
-                    # Return overall prediction using strategy
-                    overall_prediction = strategy(avg_frame_preds)
+                print(f"Video analysis complete: {len(fake_frames)}/{len(all_predictions)} suspicious frames, overall: {overall_prediction:.3f}")
                 
-                    return {
-                        'prediction': overall_prediction,
-                        'frame_predictions': frame_predictions,
-                        'fake_frames': fake_frames,
-                        'gradcam_images': gradcam_images
-                    }
+                return {
+                    'prediction': overall_prediction,
+                    'frame_predictions': frame_predictions,
+                    'fake_frames': fake_frames,
+                    'gradcam_images': gradcam_images
+                }
                     
     except Exception as e:
         print("Enhanced prediction error on video %s: %s" % (video_path, str(e)))
