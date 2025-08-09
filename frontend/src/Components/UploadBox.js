@@ -1,6 +1,6 @@
 "use client";
 import styles from "./UploadBox.module.css";
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 
 export default function UploadBox() {
   const [dragActive, setDragActive] = useState(false);
@@ -10,6 +10,34 @@ export default function UploadBox() {
   const [gradcamImage, setGradcamImage] = useState(null);
   const [loadingExplanation, setLoadingExplanation] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Memory cleanup function
+  const cleanupMemory = () => {
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    
+    // Force garbage collection if available (browser dependent)
+    if (window.gc) {
+      window.gc();
+    }
+    
+    // Clear any cached URLs
+    if (gradcamImage) {
+      // If gradcamImage was a blob URL, revoke it
+      if (gradcamImage.startsWith('blob:')) {
+        URL.revokeObjectURL(gradcamImage);
+      }
+    }
+  };
+
+  // Cleanup effect when component unmounts
+  useEffect(() => {
+    return () => {
+      cleanupMemory();
+    };
+  }, []);
 
   const handleDragOver = e => {
     e.preventDefault();
@@ -41,6 +69,9 @@ export default function UploadBox() {
   };
 
   const uploadFile = async (file) => {
+    // Clean up previous analysis memory
+    cleanupMemory();
+    
     setUploading(true);
     setResult(null);
     setExplanation(null);
@@ -93,6 +124,12 @@ export default function UploadBox() {
       });
     } finally {
       setUploading(false);
+      // Additional cleanup after upload completes
+      setTimeout(() => {
+        if (window.gc) {
+          window.gc();
+        }
+      }, 1000);
     }
   };
 
@@ -118,7 +155,7 @@ Please explain in simple terms what factors likely contributed to this classific
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3.2-3b-instruct:free',
+          model: 'meta-llama/llama-3.3-70b-instruct:free',
           messages: [
             {
               role: 'system',
@@ -169,6 +206,13 @@ Please explain in simple terms what factors likely contributed to this classific
     }
   };
 
+  const clearResults = () => {
+    cleanupMemory();
+    setResult(null);
+    setExplanation(null);
+    setGradcamImage(null);
+  };
+
   return (
     <div className={styles.container}>
       <div
@@ -195,8 +239,8 @@ Please explain in simple terms what factors likely contributed to this classific
           ) : (
             <>
               <svg width="48" height="48" fill="none" viewBox="0 0 48 48" className={styles["upload-box-icon"]}>
-                <rect width="48" height="48" rx="12" fill="#e3eefd" />
-                <path d="M24 14v20M24 14l-6 6M24 14l6 6" stroke="#0070f3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <rect width="48" height="48" rx="12" fill="#334155" />
+                <path d="M24 14v20M24 14l-6 6M24 14l6 6" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               <p className={styles["upload-box-title"]}>Drag & drop a file here</p>
               <p className={styles["upload-box-desc"]}>
@@ -209,6 +253,15 @@ Please explain in simple terms what factors likely contributed to this classific
 
       {result && (
         <div className={styles.result}>
+          <div className={styles.resultHeader}>
+            <button 
+              onClick={clearResults} 
+              className={styles.clearButton}
+              title="Clear results and free memory"
+            >
+              🗑️ Clear Results
+            </button>
+          </div>
           {result.error ? (
             <div className={styles.error}>
               <h3>❌ Error</h3>
@@ -257,19 +310,19 @@ Please explain in simple terms what factors likely contributed to this classific
                           alt="Grad-CAM visualization" 
                           className={styles.gradcamImage}
                         />
-                        <p style={{ marginTop: '8px', color: '#92400e', fontWeight: 500 }}>
+                        <p style={{ marginTop: '8px', color: '#c7d2fe', fontWeight: 500 }}>
                           <span style={{ fontWeight: 600 }}>Red areas</span> show regions the AI focused on when making its decision.
                         </p>
                       </div>
                       <div style={{ flex: 1 }}>
-                        <h4 style={{ margin: '0 0 8px 0', color: '#0c4a6e', fontSize: '1.05rem', fontWeight: 600 }}>🤖 AI Explanation</h4>
+                        <h4 style={{ margin: '0 0 8px 0', color: '#5eead4', fontSize: '1.05rem', fontWeight: 600 }}>🤖 AI Explanation</h4>
                         {loadingExplanation ? (
                           <div className={styles.loadingExplain}>
                             <div className={styles.loadingSpinner}></div>
                             <span>Generating explanation...</span>
                           </div>
                         ) : explanation ? (
-                          <div style={{ background: '#f0f9ff', padding: '12px 16px', borderRadius: '8px', border: '1px solid #0ea5e9', color: '#164e63', fontSize: '0.98rem', fontWeight: 500, lineHeight: 1.7 }}>
+                          <div style={{ background: '#0f766e', padding: '12px 16px', borderRadius: '8px', border: '1px solid #14b8a6', color: '#7dd3fc', fontSize: '0.98rem', fontWeight: 500, lineHeight: 1.7 }}>
                             {explanation.split(/\n|\r/).map((line, idx) => (
                               <p key={idx} style={{ margin: '8px 0' }}>{line.trim()}</p>
                             ))}
