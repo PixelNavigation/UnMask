@@ -271,34 +271,6 @@ Please explain in simple terms what factors likely contributed to this classific
             <div className={styles.success}>
               <h3>🎯 Detection Result</h3>
               <div className={styles.resultGrid}>
-                <div className={styles.mainResult}>
-                  <p><strong>Status:</strong> 
-                    <span className={result.is_deepfake ? styles.fake : styles.real}>
-                      {result.is_deepfake ? '🚨 DEEPFAKE DETECTED' : '✅ APPEARS AUTHENTIC'}
-                    </span>
-                  </p>
-                  <p><strong>Confidence:</strong> {(result.confidence * 100).toFixed(1)}%</p>
-                  <p><strong>Fake Probability:</strong> {(result.fake_probability * 100).toFixed(1)}%</p>
-                  <p><strong>File Type:</strong> {result.file_type}</p>
-                </div>
-                
-                
-
-                {/* Frame Analysis for Videos */}
-                {result.file_type === 'video' && result.fake_frames && result.fake_frames.length > 0 && (
-                  <div className={styles.frameAnalysis}>
-                    <h4>🎬 Suspicious Frames Detected</h4>
-                    <p>The following frames were flagged as potentially manipulated:</p>
-                    <div className={styles.frameList}>
-                      {result.fake_frames.map((frame, index) => (
-                        <div key={index} className={styles.frameItem}>
-                          Frame {frame}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* Grad-CAM Visualization with AI Explanation */}
                 {gradcamImage && (
                   <div className={styles.gradcam}>
@@ -315,7 +287,18 @@ Please explain in simple terms what factors likely contributed to this classific
                         </p>
                       </div>
                       <div style={{ flex: 1 }}>
-                        <h4 style={{ margin: '0 0 8px 0', color: '#5eead4', fontSize: '1.05rem', fontWeight: 600 }}>🤖 AI Explanation</h4>
+                        <div className={styles.mainResult}>
+                          <p><strong>Status:</strong> 
+                            <span className={result.is_deepfake ? styles.fake : styles.real}>
+                              {result.is_deepfake ? '🚨 DEEPFAKE DETECTED' : '✅ APPEARS AUTHENTIC'}
+                            </span>
+                          </p>
+                          <p><strong>Confidence:</strong> {(result.confidence * 100).toFixed(1)}%</p>
+                          <p><strong>Fake Probability:</strong> {(result.fake_probability * 100).toFixed(1)}%</p>
+                          <p><strong>File Type:</strong> {result.file_type}</p>
+                        </div>
+
+                        <h4 style={{paddingTop:'20px', margin: '0 0 8px 0', color: '#5eead4', fontSize: '1.05rem', fontWeight: 600 }}>🤖 AI Explanation</h4>
                         {loadingExplanation ? (
                           <div className={styles.loadingExplain}>
                             <div className={styles.loadingSpinner}></div>
@@ -334,6 +317,26 @@ Please explain in simple terms what factors likely contributed to this classific
                     </div>
                   </div>
                 )}
+                
+                
+                
+
+                {/* Frame Analysis for Videos */}
+                {result.file_type === 'video' && result.fake_frames && result.fake_frames.length > 0 && (
+                  <div className={styles.frameAnalysis}>
+                    <h4>🎬 Suspicious Frames Detected</h4>
+                    <p>The following frames were flagged as potentially manipulated:</p>
+                    <div className={styles.frameList}>
+                      {result.fake_frames.map((frame, index) => (
+                        <div key={index} className={styles.frameItem}>
+                          Frame {frame}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                
               </div>
             </div>
           )}
