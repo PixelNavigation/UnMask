@@ -36,6 +36,47 @@ def cleanup_file(filepath):
     except Exception as e:
         print(f"Error removing file {filepath}: {e}")
 
+def smart_prediction_strategy(predictions):
+    """
+    Improved prediction strategy that considers both count and confidence of fake frames
+    """
+    predictions = np.array(predictions)
+    
+    if len(predictions) == 0:
+        return 0.5
+    
+    # Count frames above different thresholds
+    fake_frames_50 = np.sum(predictions > 0.5)  # Standard threshold
+    fake_frames_60 = np.sum(predictions > 0.6)  # Higher confidence
+    fake_frames_70 = np.sum(predictions > 0.7)  # Very high confidence
+    
+    total_frames = len(predictions)
+    fake_ratio = fake_frames_50 / total_frames
+    
+    print(f"Debug: {fake_frames_50}/{total_frames} frames suspicious ({fake_ratio:.2%})")
+    print(f"Debug: Mean prediction: {np.mean(predictions):.3f}")
+    
+    # If majority of frames are suspicious (>50%), classify as fake
+    if fake_ratio > 0.5:
+        # Weight the prediction based on how many frames are suspicious
+        if fake_frames_70 > total_frames * 0.3:  # 30%+ very high confidence
+            return min(0.95, np.mean(predictions[predictions > 0.7]))
+        elif fake_frames_60 > total_frames * 0.4:  # 40%+ high confidence  
+            return min(0.9, np.mean(predictions[predictions > 0.6]))
+        else:
+            # Use weighted average favoring suspicious frames
+            suspicious_mean = np.mean(predictions[predictions > 0.5])
+            overall_mean = np.mean(predictions)
+            return (suspicious_mean * 0.7 + overall_mean * 0.3)
+    
+    # If significant minority is suspicious (30-50%), be more conservative
+    elif fake_ratio > 0.3:
+        return min(0.7, np.mean(predictions))
+    
+    # Otherwise use standard mean
+    else:
+        return np.mean(predictions)
+
 # Initialize the model and preprocessing pipeline
 def load_models():
     models = []
@@ -209,7 +250,7 @@ def analyze_video():
             batch_size=frames_per_video,
             input_size=input_size,
             models=models,
-            strategy=confident_strategy,
+            strategy=smart_prediction_strategy,  # Use our improved strategy
             apply_compression=False,
             return_frame_predictions=True
         )
@@ -217,13 +258,18 @@ def analyze_video():
         prediction = result['prediction']
         label = 'fake' if prediction > 0.5 else 'real'
         
+        # Calculate some statistics for better details
+        fake_frames = result.get('fake_frames', [])
+        total_frames = len(result.get('frame_predictions', []))
+        fake_ratio = len(fake_frames) / max(total_frames, 1) * 100
+        
         response = {
             'label': label,
             'confidence': float(prediction),
-            'details': f'Video analyzed using {len(models)} models with confident strategy and frame analysis',
+            'details': f'Video analyzed: {len(fake_frames)}/{total_frames} frames flagged as suspicious ({fake_ratio:.1f}%). Using smart prediction strategy.',
             'faces_detected': len(result.get('frame_predictions', [])),
             'processing_time': 'N/A',
-            'fake_frames': result.get('fake_frames', []),
+            'fake_frames': fake_frames,
             'gradcam_image': result.get('gradcam_images', [None])[0],  # Return first Grad-CAM image
             'frame_predictions': result.get('frame_predictions', [])
         }
