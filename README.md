@@ -5,7 +5,7 @@ This project integrates multiple deepfake detection models with a modern web int
 ## 🚀 Quick Start
 
 ### Backend Setup
-
+## Updated the model to tf_efficientnet_b7_ns_0_40
 1. **Navigate to backend directory:**
    ```bash
    cd backend
