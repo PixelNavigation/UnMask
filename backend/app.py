@@ -7,6 +7,7 @@ import torch
 import re
 import numpy as np
 from PIL import Image
+import gc
 
 # Add the dfdc_deepfake_challenge directory to the path
 sys.path.append('dfdc_model')
@@ -19,6 +20,21 @@ app = Flask(__name__)
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads/'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+def cleanup_memory():
+    """Clean up memory and GPU cache"""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
+def cleanup_file(filepath):
+    """Clean up uploaded file"""
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except Exception as e:
+        print(f"Error removing file {filepath}: {e}")
 
 # Initialize the model and preprocessing pipeline
 def load_models():
@@ -121,11 +137,17 @@ def predict_on_image(image_path):
                         y_pred = model(x)
                     y_pred = torch.sigmoid(y_pred.squeeze())
                     preds.append(y_pred.cpu().numpy())
+                
+                # Clean up intermediate tensors
+                del x, y_pred
+                cleanup_memory()
+                
                 return np.mean(preds)
         
         return 0.5
     except Exception as e:
         print(f"Error predicting on image: {e}")
+        cleanup_memory()
         return 0.5
 
 @app.route('/')
@@ -157,8 +179,15 @@ def analyze_image():
             'gradcam_image': result['gradcam_image'],
             'fake_frames': []  # Not applicable for images
         }
+        
+        # Clean up uploaded file and memory
+        cleanup_file(filepath)
+        cleanup_memory()
+        
         return jsonify(response)
     except Exception as e:
+        cleanup_file(filepath)
+        cleanup_memory()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/analyze/video', methods=['POST'])
@@ -198,8 +227,15 @@ def analyze_video():
             'gradcam_image': result.get('gradcam_images', [None])[0],  # Return first Grad-CAM image
             'frame_predictions': result.get('frame_predictions', [])
         }
+        
+        # Clean up uploaded file and memory
+        cleanup_file(filepath)
+        cleanup_memory()
+        
         return jsonify(response)
     except Exception as e:
+        cleanup_file(filepath)
+        cleanup_memory()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
