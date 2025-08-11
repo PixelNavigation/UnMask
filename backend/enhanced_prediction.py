@@ -88,6 +88,7 @@ def enhanced_predict_on_video(face_extractor, video_path, batch_size, input_size
                     max_pred_idx = np.argmax(avg_frame_preds)
                     if max_pred_idx < len(frame_data_list):
                         try:
+                            print(f"Generating Grad-CAM for frame {max_pred_idx} with prediction {avg_frame_preds[max_pred_idx]}")
                             # Get the target layer (last convolutional layer)
                             model = models[0]
                             target_layer = None
@@ -96,6 +97,7 @@ def enhanced_predict_on_video(face_extractor, video_path, batch_size, input_size
                                     target_layer = module
                         
                             if target_layer is not None:
+                                print(f"Using target layer: {target_layer}")
                                 gradcam = GradCAM(model, target_layer)
                                 input_tensor = x[max_pred_idx:max_pred_idx+1].clone().detach()
                                 input_tensor.requires_grad = True
@@ -109,9 +111,18 @@ def enhanced_predict_on_video(face_extractor, video_path, batch_size, input_size
                                     heatmap = heatmap.detach().cpu().numpy()
                                 gradcam_image = create_gradcam_image(original_face, heatmap)
                                 gradcam_base64 = image_to_base64(gradcam_image)
-                                gradcam_images.append(gradcam_base64)
+                                original_base64 = image_to_base64(original_face)
+                                print(f"Generated Grad-CAM: original={len(original_base64) if original_base64 else 0}, gradcam={len(gradcam_base64) if gradcam_base64 else 0}")
+                                gradcam_images.append({
+                                    'original': original_base64,
+                                    'gradcam': gradcam_base64
+                                })
+                            else:
+                                print("No convolutional layer found for Grad-CAM")
                         except Exception as e:
                             print(f"Grad-CAM generation error: {e}")
+                            import traceback
+                            traceback.print_exc()
                 
                 # Return overall prediction using strategy
                 overall_prediction = strategy(all_predictions)
@@ -159,7 +170,8 @@ def enhanced_predict_on_image(image_path, models, input_size=380):
         if batch_boxes is None:
             return {
                 'prediction': 0.5,
-                'gradcam_image': None
+                'gradcam_image': None,
+                'original_image': None
             }
             
         # Process the best face
@@ -197,10 +209,12 @@ def enhanced_predict_on_image(image_path, models, input_size=380):
             
             prediction = np.mean(preds)
             
-            # Generate Grad-CAM if fake
+            # Generate Grad-CAM for all predictions (not just fake ones)
             gradcam_image = None
-            if prediction > 0.5 and len(models) > 0:
+            original_image = None
+            if len(models) > 0:  # Generate for all predictions, not just fake ones
                 try:
+                    print(f"Generating Grad-CAM for image with prediction {prediction}")
                     model = models[0]
                     target_layer = None
                     for name, module in model.named_modules():
@@ -208,6 +222,7 @@ def enhanced_predict_on_image(image_path, models, input_size=380):
                             target_layer = module
                     
                     if target_layer is not None:
+                        print(f"Using target layer: {target_layer}")
                         gradcam = GradCAM(model, target_layer)
                         input_tensor = x.clone().detach()
                         input_tensor.requires_grad = True
@@ -216,22 +231,33 @@ def enhanced_predict_on_image(image_path, models, input_size=380):
                         heatmap = gradcam.generate_cam(input_tensor)
                         gradcam_vis = create_gradcam_image(resized_face, heatmap)
                         gradcam_image = image_to_base64(gradcam_vis)
+                        original_image = image_to_base64(resized_face)
+                        print(f"Generated Grad-CAM for image: original={len(original_image) if original_image else 0}, gradcam={len(gradcam_image) if gradcam_image else 0}")
+                    else:
+                        print("No convolutional layer found for Grad-CAM")
                 except Exception as e:
                     print(f"Grad-CAM generation error: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"Skipping Grad-CAM: models={len(models)}")
             
             return {
                 'prediction': prediction,
-                'gradcam_image': gradcam_image
+                'gradcam_image': gradcam_image,
+                'original_image': original_image
             }
         
         return {
             'prediction': 0.5,
-            'gradcam_image': None
+            'gradcam_image': None,
+            'original_image': None
         }
         
     except Exception as e:
         print(f"Enhanced image prediction error: {e}")
         return {
             'prediction': 0.5,
-            'gradcam_image': None
+            'gradcam_image': None,
+            'original_image': None
         }
