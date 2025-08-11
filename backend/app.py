@@ -218,6 +218,7 @@ def analyze_image():
             'faces_detected': 1,
             'processing_time': 'N/A',
             'gradcam_image': result['gradcam_image'],
+            'original_image': result['original_image'],
             'fake_frames': []  # Not applicable for images
         }
         
@@ -263,6 +264,19 @@ def analyze_video():
         total_frames = len(result.get('frame_predictions', []))
         fake_ratio = len(fake_frames) / max(total_frames, 1) * 100
         
+        # Get gradcam images
+        gradcam_data = result.get('gradcam_images', [])
+        gradcam_image = None
+        original_image = None
+        
+        if gradcam_data and len(gradcam_data) > 0:
+            if isinstance(gradcam_data[0], dict):
+                gradcam_image = gradcam_data[0].get('gradcam')
+                original_image = gradcam_data[0].get('original')
+            else:
+                # Fallback for old format
+                gradcam_image = gradcam_data[0]
+        
         response = {
             'label': label,
             'confidence': float(prediction),
@@ -270,7 +284,8 @@ def analyze_video():
             'faces_detected': len(result.get('frame_predictions', [])),
             'processing_time': 'N/A',
             'fake_frames': fake_frames,
-            'gradcam_image': result.get('gradcam_images', [None])[0],  # Return first Grad-CAM image
+            'gradcam_image': gradcam_image,
+            'original_image': original_image,
             'frame_predictions': result.get('frame_predictions', [])
         }
         

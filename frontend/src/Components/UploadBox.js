@@ -8,6 +8,7 @@ export default function UploadBox() {
   const [result, setResult] = useState(null);
   const [explanation, setExplanation] = useState(null);
   const [gradcamImage, setGradcamImage] = useState(null);
+  const [originalImage, setOriginalImage] = useState(null);
   const [loadingExplanation, setLoadingExplanation] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -28,6 +29,12 @@ export default function UploadBox() {
       // If gradcamImage was a blob URL, revoke it
       if (gradcamImage.startsWith('blob:')) {
         URL.revokeObjectURL(gradcamImage);
+      }
+    }
+    if (originalImage) {
+      // If originalImage was a blob URL, revoke it
+      if (originalImage.startsWith('blob:')) {
+        URL.revokeObjectURL(originalImage);
       }
     }
   };
@@ -76,6 +83,7 @@ export default function UploadBox() {
     setResult(null);
     setExplanation(null);
     setGradcamImage(null);
+    setOriginalImage(null);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -103,12 +111,17 @@ export default function UploadBox() {
           models_used: [`${data.details}`],
           file_type: isVideo ? 'video' : 'image',
           fake_frames: data.fake_frames || [], // Frames detected as fake
-          gradcam_image: data.gradcam_image || null // Base64 encoded Grad-CAM image
+          gradcam_image: data.gradcam_image || null, // Base64 encoded Grad-CAM image
+          original_image: data.original_image || null // Base64 encoded original image
         };
         setResult(transformedResult);
         
         if (data.gradcam_image) {
           setGradcamImage(data.gradcam_image);
+        }
+        
+        if (data.original_image) {
+          setOriginalImage(data.original_image);
         }
         
         // Get AI explanation after getting the result
@@ -211,6 +224,7 @@ Please explain in simple terms what factors likely contributed to this classific
     setResult(null);
     setExplanation(null);
     setGradcamImage(null);
+    setOriginalImage(null);
   };
 
   return (
@@ -271,33 +285,57 @@ Please explain in simple terms what factors likely contributed to this classific
             <div className={styles.success}>
               <h3>🎯 Detection Result</h3>
               <div className={styles.resultGrid}>
+                
+                {/* Basic Results - Always Show */}
+                <div className={styles.mainResult}>
+                  <p><strong>Status:</strong> 
+                    <span className={result.is_deepfake ? styles.fake : styles.real}>
+                      {result.is_deepfake ? '🚨 DEEPFAKE DETECTED' : '✅ APPEARS AUTHENTIC'}
+                    </span>
+                  </p>
+                  <p><strong>Confidence:</strong> {(result.confidence * 100).toFixed(1)}%</p>
+                  <p><strong>Fake Probability:</strong> {(result.fake_probability * 100).toFixed(1)}%</p>
+                  <p><strong>File Type:</strong> {result.file_type}</p>
+                  <p><strong>Faces Detected:</strong> {result.faces_detected}</p>
+                  <p><strong>Processing Time:</strong> {result.processing_time}</p>
+                </div>
+
                 {/* Grad-CAM Visualization with AI Explanation */}
-                {gradcamImage && (
+                {(gradcamImage || originalImage) && (
                   <div className={styles.gradcam}>
                     <h4>🔍 Visual Explanation (Grad-CAM)</h4>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '32px' }}>
                       <div>
-                        <img 
-                          src={`data:image/png;base64,${gradcamImage}`} 
-                          alt="Grad-CAM visualization" 
-                          className={styles.gradcamImage}
-                        />
+                        {/* Image comparison - Original vs Grad-CAM */}
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                          {originalImage && (
+                            <div>
+                              <h5 style={{ margin: '0 0 8px 0', color: '#c7d2fe', fontSize: '0.9rem' }}>Original Frame</h5>
+                              <img 
+                                src={`data:image/png;base64,${originalImage}`} 
+                                alt="Original frame" 
+                                className={styles.gradcamImage}
+                                style={{ border: '2px solid #4ade80' }}
+                              />
+                            </div>
+                          )}
+                          {gradcamImage && (
+                            <div>
+                              <h5 style={{ margin: '0 0 8px 0', color: '#c7d2fe', fontSize: '0.9rem' }}>Grad-CAM Analysis</h5>
+                              <img 
+                                src={`data:image/png;base64,${gradcamImage}`} 
+                                alt="Grad-CAM visualization" 
+                                className={styles.gradcamImage}
+                                style={{ border: '2px solid #f87171' }}
+                              />
+                            </div>
+                          )}
+                        </div>
                         <p style={{ marginTop: '8px', color: '#c7d2fe', fontWeight: 500 }}>
-                          <span style={{ fontWeight: 600 }}>Red areas</span> show regions the AI focused on when making its decision.
+                          <span style={{ fontWeight: 600 }}>Red areas</span> in the Grad-CAM show regions the AI focused on when making its decision.
                         </p>
                       </div>
                       <div style={{ flex: 1 }}>
-                        <div className={styles.mainResult}>
-                          <p><strong>Status:</strong> 
-                            <span className={result.is_deepfake ? styles.fake : styles.real}>
-                              {result.is_deepfake ? '🚨 DEEPFAKE DETECTED' : '✅ APPEARS AUTHENTIC'}
-                            </span>
-                          </p>
-                          <p><strong>Confidence:</strong> {(result.confidence * 100).toFixed(1)}%</p>
-                          <p><strong>Fake Probability:</strong> {(result.fake_probability * 100).toFixed(1)}%</p>
-                          <p><strong>File Type:</strong> {result.file_type}</p>
-                        </div>
-
                         <h4 style={{paddingTop:'20px', margin: '0 0 8px 0', color: '#5eead4', fontSize: '1.05rem', fontWeight: 600 }}>🤖 AI Explanation</h4>
                         {loadingExplanation ? (
                           <div className={styles.loadingExplain}>
@@ -315,6 +353,27 @@ Please explain in simple terms what factors likely contributed to this classific
                         )}
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* AI Explanation when no Grad-CAM available */}
+                {!(gradcamImage || originalImage) && (
+                  <div className={styles.explanation}>
+                    <h4 style={{ margin: '16px 0 8px 0', color: '#5eead4', fontSize: '1.05rem', fontWeight: 600 }}>🤖 AI Explanation</h4>
+                    {loadingExplanation ? (
+                      <div className={styles.loadingExplain}>
+                        <div className={styles.loadingSpinner}></div>
+                        <span>Generating explanation...</span>
+                      </div>
+                    ) : explanation ? (
+                      <div style={{ background: '#0f766e', padding: '12px 16px', borderRadius: '8px', border: '1px solid #14b8a6', color: '#7dd3fc', fontSize: '0.98rem', fontWeight: 500, lineHeight: 1.7 }}>
+                        {explanation.split(/\n|\r/).map((line, idx) => (
+                          <p key={idx} style={{ margin: '8px 0' }}>{line.trim()}</p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>AI explanation will appear here after analysis.</p>
+                    )}
                   </div>
                 )}
                 
