@@ -1,6 +1,7 @@
 "use client";
 import styles from "./UploadBox.module.css";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
+import Image from "next/image";
 
 export default function UploadBox() {
   const [dragActive, setDragActive] = useState(false);
@@ -13,7 +14,7 @@ export default function UploadBox() {
   const fileInputRef = useRef(null);
 
   // Memory cleanup function
-  const cleanupMemory = () => {
+  const cleanupMemory = useCallback(() => {
     // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -37,14 +38,14 @@ export default function UploadBox() {
         URL.revokeObjectURL(originalImage);
       }
     }
-  };
+  }, [gradcamImage, originalImage]);
 
   // Cleanup effect when component unmounts
   useEffect(() => {
     return () => {
       cleanupMemory();
     };
-  }, []);
+  }, [cleanupMemory]);
 
   const handleDragOver = e => {
     e.preventDefault();
@@ -311,22 +312,26 @@ Please explain in simple terms what factors likely contributed to this classific
                           {originalImage && (
                             <div>
                               <h5 style={{ margin: '0 0 8px 0', color: '#c7d2fe', fontSize: '0.9rem' }}>Original Frame</h5>
-                              <img 
-                                src={`data:image/png;base64,${originalImage}`} 
-                                alt="Original frame" 
+                              <Image
+                                src={`data:image/png;base64,${originalImage}`}
+                                alt="Original frame"
                                 className={styles.gradcamImage}
-                                style={{ border: '2px solid #4ade80' }}
+                                width={400}
+                                height={400}
+                                style={{ height: 'auto', border: '2px solid #4ade80' }}
                               />
                             </div>
                           )}
                           {gradcamImage && (
                             <div>
                               <h5 style={{ margin: '0 0 8px 0', color: '#c7d2fe', fontSize: '0.9rem' }}>Grad-CAM Analysis</h5>
-                              <img 
-                                src={`data:image/png;base64,${gradcamImage}`} 
-                                alt="Grad-CAM visualization" 
+                              <Image
+                                src={`data:image/png;base64,${gradcamImage}`}
+                                alt="Grad-CAM visualization"
                                 className={styles.gradcamImage}
-                                style={{ border: '2px solid #f87171' }}
+                                width={400}
+                                height={400}
+                                style={{ height: 'auto', border: '2px solid #f87171' }}
                               />
                             </div>
                           )}
