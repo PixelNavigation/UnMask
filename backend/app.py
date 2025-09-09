@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
@@ -16,7 +16,7 @@ from dfdc_model.kernel_utils import VideoReader, FaceExtractor, confident_strate
 from dfdc_model.training.zoo.classifiers import DeepFakeClassifier
 from enhanced_prediction import enhanced_predict_on_video, enhanced_predict_on_image
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads/'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -193,7 +193,20 @@ def predict_on_image(image_path):
 
 @app.route('/')
 def index():
+    # If a static frontend exists (Next.js export), serve it; otherwise return JSON
+    index_path = os.path.join(app.static_folder or '', 'index.html')
+    if app.static_folder and os.path.exists(index_path):
+        return send_from_directory(app.static_folder, 'index.html')
     return jsonify({'message': 'Deepfake Detection Flask API is running.'})
+
+# Serve other static assets (JS/CSS) when using exported Next.js
+@app.route('/<path:path>')
+def static_proxy(path):
+    if app.static_folder:
+        file_path = os.path.join(app.static_folder, path)
+        if os.path.exists(file_path):
+            return send_from_directory(app.static_folder, path)
+    return jsonify({'error': 'Not found'}), 404
 
 @app.route('/analyze/image', methods=['POST'])
 def analyze_image():
