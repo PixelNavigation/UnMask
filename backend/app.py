@@ -18,8 +18,26 @@ from enhanced_prediction import enhanced_predict_on_video, enhanced_predict_on_i
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
-app.config['UPLOAD_FOLDER'] = 'uploads/'
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+import tempfile
+
+# Choose an upload folder that is writable in container environments.
+# Prefer environment override, then /tmp/uploads, then a tempdir fallback.
+upload_folder = os.environ.get('UPLOAD_FOLDER', '/tmp/uploads')
+try:
+    os.makedirs(upload_folder, exist_ok=True)
+except PermissionError:
+    # Fallback to system temp directory if the preferred path is not writable
+    fallback = os.path.join(tempfile.gettempdir(), 'unmask_uploads')
+    try:
+        os.makedirs(fallback, exist_ok=True)
+        upload_folder = fallback
+        print(f"Warning: preferred upload folder not writable, using fallback: {fallback}")
+    except Exception as e:
+        # As a last resort, set upload_folder to tempfile.gettempdir()
+        upload_folder = tempfile.gettempdir()
+        print(f"Critical: unable to create upload directories, using system temp: {upload_folder} ({e})")
+
+app.config['UPLOAD_FOLDER'] = upload_folder
 
 def cleanup_memory():
     """Clean up memory and GPU cache"""
