@@ -1,3 +1,15 @@
+---
+title: Unmask
+emoji: 🕵️‍♂️
+colorFrom: purple
+colorTo: indigo
+sdk: docker
+sdk_version: "1.0"
+app_file: app.py
+pinned: false
+---
+
+
 # UnMask - Enhanced Deepfake Detection
 
 This project integrates multiple deepfake detection models with a modern web interface.
