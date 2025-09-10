@@ -3,51 +3,57 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
 import sys
-import torch
-import re
-import numpy as np
-from PIL import Image
-import gc
 import tempfile
 import traceback
+import logging
+from PIL import Image
 
 def _ensure_writable_caches():
-    """Ensure ML framework caches use writable temp dirs to avoid PermissionError on /.cache."""
-    tmp = tempfile.gettempdir()
-    defaults = {
-        'HF_HOME': os.path.join(tmp, 'hf_home'),
-        'XDG_CACHE_HOME': os.path.join(tmp, '.cache'),
-        'TRANSFORMERS_CACHE': os.path.join(tmp, 'hf_home'),
-        'TORCH_HOME': os.path.join(tmp, 'torch'),
-        'HF_DATASETS_CACHE': os.path.join(tmp, '.cache', 'huggingface', 'datasets'),
-        'HF_MODULES_CACHE': os.path.join(tmp, '.cache', 'huggingface', 'modules'),
-        'HF_HUB_CACHE': os.path.join(tmp, '.cache', 'huggingface', 'hub'),
-        'NO_ALBUMENTATIONS_UPDATE': '1',
-        'HF_HUB_OFFLINE': '1',  # prevent network downloads during startup
+    """
+    Redirect all model / hub caches to writable tmp directories to avoid
+    PermissionError inside container (e.g. attempts to write to '/.cache').
+    Safe to call multiple times.
+    """
+    tmp_root = os.environ.get("TMPDIR") or tempfile.gettempdir()
+    base_cache = os.path.join(tmp_root, ".cache")
+    subdirs = {
+        "HF_HOME": "huggingface",
+        "HF_HUB_CACHE": "huggingface",
+        "TRANSFORMERS_CACHE": "huggingface",
+        "TORCH_HOME": "torch",
+        "TIMM_CACHE_DIR": "timm",
+        "XDG_CACHE_HOME": "",  # root of the cache tree
     }
-    for k, v in defaults.items():
-        if k not in os.environ:
-            os.environ[k] = v
-    # create a subset of directories best-effort
-    for path in [os.environ.get('HF_HOME'), os.environ.get('XDG_CACHE_HOME'), os.environ.get('TORCH_HOME')]:
-        try:
-            if path:
-                os.makedirs(path, exist_ok=True)
-        except Exception:
-            pass
+    for var, sub in subdirs.items():
+        path = os.environ.get(var)
+        if not path:
+            path = os.path.join(base_cache, sub) if sub else base_cache
+            os.environ[var] = path
+        os.makedirs(path, exist_ok=True)
+    # Quiet albumentations update check noise
+    os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
 
 _ensure_writable_caches()
 
-# Add the model directory to path and import after cache env is set
+# Add model directory before importing model utilities
 sys.path.append('dfdc_model')
 
-from dfdc_model.kernel_utils import VideoReader, FaceExtractor, confident_strategy, predict_on_video
-from dfdc_model.training.zoo.classifiers import DeepFakeClassifier
-from enhanced_prediction import enhanced_predict_on_video, enhanced_predict_on_image
+try:
+    from dfdc_model.kernel_utils import VideoReader, FaceExtractor, confident_strategy, predict_on_video
+    from dfdc_model.training.zoo.classifiers import DeepFakeClassifier
+except Exception as e:
+    traceback.print_exc()
+    with open(os.path.join(tempfile.gettempdir(), "startup_error.log"), "w", encoding="utf-8") as f:
+        f.write(traceback.format_exc())
+    VideoReader = FaceExtractor = confident_strategy = predict_on_video = None
+    DeepFakeClassifier = None
 
-app = Flask(__name__, static_folder='static', static_url_path='')
+app = Flask(__name__)
 CORS(app)
- # tempfile already imported above
+
+# Choose a writable upload folder
+app.config["UPLOAD_FOLDER"] = os.environ.get("UPLOAD_FOLDER") or os.path.join(tempfile.gettempdir(), "uploads")
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 # Choose an upload folder that is writable in container environments.
 # Prefer environment override, then /tmp/uploads, then a tempdir fallback.
