@@ -8,8 +8,37 @@ import re
 import numpy as np
 from PIL import Image
 import gc
+import tempfile
+import traceback
 
-# Add the dfdc_deepfake_challenge directory to the path
+def _ensure_writable_caches():
+    """Ensure ML framework caches use writable temp dirs to avoid PermissionError on /.cache."""
+    tmp = tempfile.gettempdir()
+    defaults = {
+        'HF_HOME': os.path.join(tmp, 'hf_home'),
+        'XDG_CACHE_HOME': os.path.join(tmp, '.cache'),
+        'TRANSFORMERS_CACHE': os.path.join(tmp, 'hf_home'),
+        'TORCH_HOME': os.path.join(tmp, 'torch'),
+        'HF_DATASETS_CACHE': os.path.join(tmp, '.cache', 'huggingface', 'datasets'),
+        'HF_MODULES_CACHE': os.path.join(tmp, '.cache', 'huggingface', 'modules'),
+        'HF_HUB_CACHE': os.path.join(tmp, '.cache', 'huggingface', 'hub'),
+        'NO_ALBUMENTATIONS_UPDATE': '1',
+        'HF_HUB_OFFLINE': '1',  # prevent network downloads during startup
+    }
+    for k, v in defaults.items():
+        if k not in os.environ:
+            os.environ[k] = v
+    # create a subset of directories best-effort
+    for path in [os.environ.get('HF_HOME'), os.environ.get('XDG_CACHE_HOME'), os.environ.get('TORCH_HOME')]:
+        try:
+            if path:
+                os.makedirs(path, exist_ok=True)
+        except Exception:
+            pass
+
+_ensure_writable_caches()
+
+# Add the model directory to path and import after cache env is set
 sys.path.append('dfdc_model')
 
 from dfdc_model.kernel_utils import VideoReader, FaceExtractor, confident_strategy, predict_on_video
@@ -18,7 +47,7 @@ from enhanced_prediction import enhanced_predict_on_video, enhanced_predict_on_i
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
-import tempfile
+ # tempfile already imported above
 
 # Choose an upload folder that is writable in container environments.
 # Prefer environment override, then /tmp/uploads, then a tempdir fallback.
@@ -135,9 +164,21 @@ def initialize_preprocessing():
 
 # Load models and initialize preprocessing
 print("Loading models...")
-models = load_models()
+models = []
+try:
+    models = load_models()
+    print(f"Loaded {len(models)} models")
+except Exception:
+    tb = traceback.format_exc()
+    log_path = os.path.join(tempfile.gettempdir(), 'startup_error.log')
+    try:
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write('Model loading failed. Traceback:\n')
+            f.write(tb)
+    except Exception as write_err:
+        print(f"Failed writing startup error log: {write_err}")
+    print(f"Model loading failed; continuing with 0 models. Trace written to {log_path}")
 face_extractor, input_size, frames_per_video = initialize_preprocessing()
-print(f"Loaded {len(models)} models")
 
 def predict_on_image(image_path):
     """Predict on a single image using face extraction and model inference"""

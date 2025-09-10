@@ -42,9 +42,12 @@ encoder_params = {
         "features": 2304,
         "init_op": partial(tf_efficientnet_b6_ns, pretrained=True, drop_path_rate=0.2)
     },
+    # Set pretrained=False here to avoid timm attempting to download weights at startup in
+    # restricted environments (e.g. Hugging Face Space container without write perms to /.cache).
+    # Local checkpoint weights will still be loaded afterwards by our application code.
     "tf_efficientnet_b7_ns": {
         "features": 2560,
-        "init_op": partial(tf_efficientnet_b7_ns, pretrained=True, drop_path_rate=0.2)
+        "init_op": partial(tf_efficientnet_b7_ns, pretrained=False, drop_path_rate=0.2)
     },
     "tf_efficientnet_b6_ns_04d": {
         "features": 2304,
